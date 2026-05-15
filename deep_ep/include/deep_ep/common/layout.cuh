@@ -76,6 +76,9 @@ struct WorkspaceLayout {
         // AGRS signals
         num_bytes += (kNumMaxInflightAGRS + 1) * kNumMaxRanks * sizeof(int);
 
+        // Combine signal shadow storage (channels * max_scaleout_ranks * int64_t)
+        num_bytes += kNumMaxChannels * 32 * sizeof(int64_t);
+
         // Ensure LDG.256 work
         return math::align<int64_t>(num_bytes, 32);
     }
@@ -149,6 +152,13 @@ struct WorkspaceLayout {
             get_scaleout_channel_signaled_tail_ptr(0, 0),
             kNumMaxRanks * kNumMaxChannels * sizeof(int64_t));
         return base_ptr + (channel_idx * num_scaleup_ranks + scaleup_rank_idx);
+    }
+
+    __forceinline__ __device__ __host__ int64_t* get_combine_signal_shadow_ptr(
+        const int& channel_idx, const int& scaleout_rank_idx) const {
+        const auto base_ptr = math::advance_ptr<int64_t>(
+            get_agrs_session_signal_ptr(0), kNumMaxRanks * sizeof(int));
+        return base_ptr + (channel_idx * num_scaleout_ranks + scaleout_rank_idx);
     }
 
     __forceinline__ __device__ __host__ int64_t* get_pp_send_count_ptr(const int& offset) const {

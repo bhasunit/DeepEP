@@ -96,8 +96,18 @@ hybrid_combine_impl(nv_bfloat16* x,
                       kNumSMs, kNumThreads, kNumQPs, kNumTimeoutCycles, comm::kHybridCombineTag0, false, true, true>(
         gin, workspace_layout, scaleout_rank_idx, scaleup_rank_idx, sm_idx, thread_idx);
 
+    // Shadow: store baseline in dedicated global memory area of workspace
+    // Captured right after barrier, before any rank can send combine signals
+    if (warp_idx < kNumScaleupWarps) {
+        const auto ch_idx = sm_idx * kNumChannelsPerSM + warp_idx;
+        if (lane_idx < kNumScaleoutRanks) {
+            *workspace_layout.get_combine_signal_shadow_ptr(ch_idx, lane_idx) =
+                ptx::ld_acquire_sys<int64_t>(
+                    workspace_layout.get_scaleout_channel_signaled_tail_ptr(ch_idx, lane_idx));
+        }
+    }
+
     // Adjust register count at certain cases
-    // TODO: support more cases, or try to make channel count more aligned
     const bool kAdjustRegisters = (kNumChannelsPerSM == 4 or kNumChannelsPerSM == 8) and not kUseExpandedLayout;
     constexpr int kNumRegistersForScaleupWarps = 40;
     constexpr int kNumRegistersForForwardWarps = 256 - kNumRegistersForScaleupWarps;
@@ -587,13 +597,12 @@ hybrid_combine_impl(nv_bfloat16* x,
                 workspace_layout.get_scaleout_channel_signaled_tail_ptr(channel_idx, scaleout_rank_idx),
                 expected_signal, lane_idx);
 
-            // Wait tail arrival
+            // Read shadow from global memory (stored there at kernel start, after barrier)
             const auto wait_ptr = workspace_layout.get_scaleout_channel_signaled_tail_ptr(channel_idx, lane_idx);
+            const int64_t saved_shadow = *workspace_layout.get_combine_signal_shadow_ptr(channel_idx, lane_idx);
             comm::timeout_while<kNumTimeoutCycles>([=](const bool& is_last_check) {
-                const auto signal = ptx::ld_acquire_sys<int64_t>(wait_ptr);
+                const auto signal = ptx::ld_acquire_sys<int64_t>(wait_ptr) - saved_shadow;
                 if (signal == expected_signal) {
-                    // Clean for next usages
-                    *wait_ptr = 0;
                     return true;
                 }
 

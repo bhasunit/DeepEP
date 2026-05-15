@@ -77,6 +77,14 @@ hybrid_dispatch_impl(
         sm_idx, (warp_idx - kNumNotifyWarps) % kNumChannelsPerSM, warp_idx < kNumNotifyWarps);
     const auto gin = handle::NCCLGin(nccl_dev_comm, nccl_window, qp_idx, sharing_mode);
 
+    // Forward warp: capture signal shadow BEFORE barrier (previous kernel completed, memory stable)
+    int64_t dispatch_signal_shadow = 0;
+    if (warp_idx >= kNumNotifyWarps + kNumScaleoutWarps and lane_idx < kNumScaleoutRanks) {
+        const int fwd_channel_idx = sm_idx * kNumChannelsPerSM + (warp_idx - (kNumNotifyWarps + kNumScaleoutWarps));
+        dispatch_signal_shadow = ptx::ld_acquire_sys<int64_t>(
+            workspace_layout.get_scaleout_channel_signaled_tail_ptr(fwd_channel_idx, lane_idx));
+    }
+
     // Global parallel barriers for scale-out subteam and scale-up subteam
     comm::gpu_barrier<true, kNumScaleoutRanks, kNumScaleupRanks,
                       kNumSMs, kNumThreads, kNumQPs, kNumTimeoutCycles, comm::kHybridDispatchTag0, false, false, true>(
@@ -510,11 +518,11 @@ hybrid_dispatch_impl(
                     return false;
                 }
 
-                // Read new signaled tails
+                // Read new signaled tails (subtract shadow)
                 if (lane_idx < kNumScaleoutRanks) {
-                    const auto signaled_tail = ptx::ld_acquire_sys<int64_t>(
+                    const auto raw = ptx::ld_acquire_sys<int64_t>(
                         workspace_layout.get_scaleout_channel_signaled_tail_ptr(channel_idx, lane_idx));
-                    math::unpack2<int, int64_t>(signaled_tail, stored_finish_flag, stored_scaleout_tail_idx);
+                    math::unpack2<int, int64_t>(raw - dispatch_signal_shadow, stored_finish_flag, stored_scaleout_tail_idx);
                 }
                 __syncwarp();
                 return false;
@@ -647,10 +655,6 @@ hybrid_dispatch_impl(
         }
         __syncwarp();
 
-        // Clean tails for next usages
-        if (lane_idx < kNumScaleoutRanks)
-            *workspace_layout.get_scaleout_channel_signaled_tail_ptr(channel_idx, lane_idx) = 0;
-        __syncwarp();
     }
 
     // Scale-up barrier to ensure data arrival

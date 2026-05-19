@@ -74,7 +74,8 @@ public:
                                const int& num_ranks, const int& rank_idx,
                                const size_t& size, const size_t& alignment,
                                const bool& allow_hybrid_mode,
-                               const int& sl_idx, const int& num_allocated_qps);
+                               const int& sl_idx, const int& num_sms,
+                               const int& num_allocated_qps);
 
     // TODO: finish this with `explicit_destroy`
     // ~NCCLSymmetricMemoryContext();

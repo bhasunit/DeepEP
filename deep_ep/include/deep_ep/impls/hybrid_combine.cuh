@@ -97,7 +97,6 @@ hybrid_combine_impl(nv_bfloat16* x,
         gin, workspace_layout, scaleout_rank_idx, scaleup_rank_idx, sm_idx, thread_idx);
 
     // Adjust register count at certain cases
-    // TODO: support more cases, or try to make channel count more aligned
     const bool kAdjustRegisters = (kNumChannelsPerSM == 4 or kNumChannelsPerSM == 8) and not kUseExpandedLayout;
     constexpr int kNumRegistersForScaleupWarps = 40;
     constexpr int kNumRegistersForForwardWarps = 256 - kNumRegistersForScaleupWarps;
@@ -583,17 +582,17 @@ hybrid_combine_impl(nv_bfloat16* x,
         if (lane_idx < kNumScaleoutRanks) {
             // Update remote tails
             const auto expected_signal = math::pack2<int, int64_t>(1, 0);
+            const auto send_signal_id = static_cast<ncclGinSignal_t>(kNumRanks + channel_idx * kNumScaleoutRanks + scaleout_rank_idx);
             gin.red_add_rel<ncclTeamTagRail>(
                 workspace_layout.get_scaleout_channel_signaled_tail_ptr(channel_idx, scaleout_rank_idx),
-                expected_signal, lane_idx);
+                expected_signal, lane_idx, send_signal_id);
 
-            // Wait tail arrival
-            const auto wait_ptr = workspace_layout.get_scaleout_channel_signaled_tail_ptr(channel_idx, lane_idx);
+            // Wait for signal (readSignal returns delta since resetSignal)
+            const auto recv_signal_id = static_cast<ncclGinSignal_t>(kNumRanks + channel_idx * kNumScaleoutRanks + lane_idx);
             comm::timeout_while<kNumTimeoutCycles>([=](const bool& is_last_check) {
-                const auto signal = ptx::ld_acquire_sys<int64_t>(wait_ptr);
+                const auto signal = static_cast<int64_t>(gin.gin.readSignal(recv_signal_id));
                 if (signal == expected_signal) {
-                    // Clean for next usages
-                    *wait_ptr = 0;
+                    gin.gin.resetSignal(recv_signal_id);
                     return true;
                 }
 

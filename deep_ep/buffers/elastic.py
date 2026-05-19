@@ -135,6 +135,7 @@ class ElasticBuffer:
                  allow_multiple_reduction: bool = True,
                  prefer_overlap_with_compute: bool = True,
                  sl_idx: int = 3,
+                 num_sms: int = 0,
                  num_allocated_qps: int = 0,
                  num_cpu_timeout_secs: int = 300, num_gpu_timeout_secs: int = 100,
                  explicitly_destroy: bool = False):
@@ -209,7 +210,7 @@ class ElasticBuffer:
                                         allow_hybrid_mode,
                                         allow_multiple_reduction,
                                         prefer_overlap_with_compute,
-                                        sl_idx, num_allocated_qps,
+                                        sl_idx, num_sms, num_allocated_qps,
                                         num_cpu_timeout_secs, num_gpu_timeout_secs,
                                         self.explicitly_destroy)
 

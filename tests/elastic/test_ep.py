@@ -482,6 +482,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
                                      allow_multiple_reduction=args.allow_multiple_reduction,
                                      prefer_overlap_with_compute=bool(args.prefer_overlap_with_compute),
                                      sl_idx=args.sl_idx,
+                                     num_sms=args.num_sms,
                                      num_allocated_qps=max(args.num_allocated_qps, args.num_qps),
                                      explicitly_destroy=True,
                                      num_gpu_timeout_secs=args.num_gpu_timeout_secs,

@@ -65,7 +65,8 @@ NCCLSymmetricMemoryContext::NCCLSymmetricMemoryContext(const int64_t& nccl_comm,
                                                        const int& num_ranks, const int& rank_idx,
                                                        const size_t& size, const size_t& alignment,
                                                        const bool& allow_hybrid_mode,
-                                                       const int& sl_idx, const int& num_allocated_qps):
+                                                       const int& sl_idx, const int& num_sms,
+                                                       const int& num_allocated_qps):
     rank_idx(rank_idx), num_ranks(num_ranks), num_allocated_qps(num_allocated_qps) {
     if (get_env("EP_BUFFER_DEBUG", 0)) {
         int nccl_version;
@@ -96,8 +97,10 @@ NCCLSymmetricMemoryContext::NCCLSymmetricMemoryContext(const int64_t& nccl_comm,
         reqs.ginExclusiveContexts = true;
         reqs.ginQueueDepth = 1024;
         reqs.ginTrafficClass = sl_idx;
-        // Customized RDMA barrier needs extra signals
-        reqs.ginSignalCount = num_ranks + 2 * 2;
+        // Exact signal count: barrier (num_ranks) + channel tails (num_channels * num_scaleout_ranks)
+        const int num_scaleout = allow_hybrid_mode ? props.nLsaTeams : 1;
+        const int max_channels = (num_sms > 0 ? num_sms : 160) * 8;
+        reqs.ginSignalCount = num_ranks + max_channels * num_scaleout;
         reqs.ginConnectionType = allow_hybrid_mode ? NCCL_GIN_CONNECTION_RAIL: NCCL_GIN_CONNECTION_FULL;
     }
     NCCL_CHECK(ncclDevCommCreate(comm, &reqs, &dev_comm));

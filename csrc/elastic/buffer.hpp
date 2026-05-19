@@ -85,7 +85,8 @@ public:
                   const bool& allow_hybrid_mode,
                   const bool& allow_multiple_reduction,
                   const bool& prefer_overlap_with_compute,
-                  const int& sl_idx, const int& num_allocated_qps,
+                  const int& sl_idx, const int& num_sms,
+                  const int& num_allocated_qps,
                   const int& num_cpu_timeout_secs, const int& num_gpu_timeout_secs,
                   const bool& explicitly_destroy):
         num_buffer_bytes(num_buffer_bytes),
@@ -100,7 +101,7 @@ public:
         this->nccl_context = std::make_shared<nccl::NCCLSymmetricMemoryContext>(
             nccl_comm, num_ranks, rank_idx,
             layout::WorkspaceLayout::get_num_bytes() + num_buffer_bytes, kBufferAlignment,
-            allow_hybrid_mode, sl_idx, num_allocated_qps);
+            allow_hybrid_mode, sl_idx, num_sms, num_allocated_qps);
 
         // Timeout
         this->num_cpu_timeout_secs = num_cpu_timeout_secs;
@@ -1274,7 +1275,7 @@ public:
 
 static void register_apis(pybind11::module_& m) {
     pybind11::class_<ElasticBuffer>(m, "ElasticBuffer")
-        .def(pybind11::init<int, int, int64_t, int64_t, bool, bool, bool, bool, int, int, int, int, bool>())
+        .def(pybind11::init<int, int, int64_t, int64_t, bool, bool, bool, bool, int, int, int, int, int, bool>())
         .def("destroy", &ElasticBuffer::destroy)
         .def("get_comm_stream", &ElasticBuffer::get_comm_stream)
         .def("get_physical_domain_size", &ElasticBuffer::get_physical_domain_size)

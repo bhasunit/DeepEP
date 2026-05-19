@@ -339,7 +339,7 @@ hybrid_dispatch_impl(
 
                 // NOTES: the "release" scope will be `sys` for the local rank (we may involve NVLink so not `gpu`)
                 // For RDMA requests, "release" is ensured by "atomic"
-                gin.red_add_rel<ncclTeamTagRail>(ptr, signaled_tail - old_signaled_tail, lane_idx);
+                gin.red_add_rel<ncclTeamTagRail>(ptr, signaled_tail - old_signaled_tail, lane_idx, kNumRanks + channel_idx * kNumScaleoutRanks + scaleout_rank_idx);
                 stored_old_scaleout_tail = stored_scaleout_tail;
             }
             __syncwarp();
@@ -510,10 +510,10 @@ hybrid_dispatch_impl(
                     return false;
                 }
 
-                // Read new signaled tails
+                // Read signaled tails from indexed signal (delta since resetSignal)
                 if (lane_idx < kNumScaleoutRanks) {
-                    const auto signaled_tail = ptx::ld_acquire_sys<int64_t>(
-                        workspace_layout.get_scaleout_channel_signaled_tail_ptr(channel_idx, lane_idx));
+                    const auto signal_id = static_cast<ncclGinSignal_t>(kNumRanks + channel_idx * kNumScaleoutRanks + lane_idx);
+                    const auto signaled_tail = static_cast<int64_t>(gin.gin.readSignal(signal_id));
                     math::unpack2<int, int64_t>(signaled_tail, stored_finish_flag, stored_scaleout_tail_idx);
                 }
                 __syncwarp();
@@ -647,9 +647,11 @@ hybrid_dispatch_impl(
         }
         __syncwarp();
 
-        // Clean tails for next usages
-        if (lane_idx < kNumScaleoutRanks)
-            *workspace_layout.get_scaleout_channel_signaled_tail_ptr(channel_idx, lane_idx) = 0;
+        // Reset signals for next consumer (combine)
+        if (lane_idx < kNumScaleoutRanks) {
+            const auto signal_id = static_cast<ncclGinSignal_t>(kNumRanks + channel_idx * kNumScaleoutRanks + lane_idx);
+            gin.gin.resetSignal(signal_id);
+        }
         __syncwarp();
     }
 
